@@ -19,7 +19,6 @@ Additionally, accuracy with validation data will be accounted as main metrics.
 
 
 ## II. Analysis
-_(approx. 2-4 pages)_
 
 ### Data Exploration
 The dataset is provided by Udacity and downloaded to my project. There is three files.
@@ -52,6 +51,7 @@ For channels, we have below as value:
 * social
 
 Portofolio data contains 10 rows and the data looks like below:
+
 ![](images/2020-02-22-22-33-15.png)
 *Sample of protfolio.json*
 
@@ -63,6 +63,7 @@ Portofolio data contains 10 rows and the data looks like below:
 * income (float) - customer’s income
 
 The data sample looks like below:
+
 ![](images/2020-02-22-22-38-31.png)
 *Sample of profile.json*
 
@@ -82,12 +83,14 @@ This json file contains 4 types of events. Those events represents key events fo
 Each of these has different dictionary value set in the value column. For example, for transaction event, the dictionary contains amount of money transacted, and for offer completed, it's offer id.
 
 The data has 306534 rows and the data sample looks like this.
+
 ![](images/2020-02-22-22-52-47.png)
 *Sample of transcript.json*
 
 ### Exploratory Data Analysis
 
 #### portfolio.json
+
 This data only contains 10 rows. 
 
 Channel row contains arrays of strings, and this is not machine learning model friendly, although it is expected that different channel have different influence on users. I will have to separate them to separate columns. 
@@ -100,7 +103,6 @@ Age distribution is shown below. This shows people who is over 118 years old is 
 
 ![](images/2020-02-22-22-39-35.png)
 *Age distribution in profile.json*
-
 
 The income distribution is shown below, and it seems reasonably distributed given it looks like normal distribution except for `NaN` rows. I will replace this `NaN` values with the average.
 
@@ -138,23 +140,40 @@ The box graph below shows distribution of offer event including received, viewed
 *Distribution of offer event count in transcript.json*
 
 ### Algorithms and Techniques
-The goal for this project is to come up with a model that can accurately predict wether user will complete the offer or not. This is binary classification problem. 
-I will use the logistic regression model, multi layer perceptron, random forrest classifier and the k-nearest neighbors vote.
+The goal for this project is to come up with a model that can accurately predict wether user will complete the offer or not. This is supervised binary classification problem.
+
+I will use the logistic regression model, multi layer perceptron, random forrest classifier, the k-nearest neighbors vote, support vector machine and AdaBoost classifier.
+
 Logistic regression is a probability model which is used for 0/1 problems. This model is used in variety of field such as medical and engineering.In this model, sigmoid function is used. It takes takes in user profile and offer data as input and gives an steep curve at which y value changes. an arbitral threshold is selected and depends on the threshold you can change sensitiveness of the model. I will use `LogisticRegression()` in sklearn for this problem.
+
 Multi layer perceptron is consists of multiple layer of perceptorons as the name suggests. Perceptron is mathematic model represented by an activation function such as a step function or a sigmoid function, which sends output to the next layer if it hits certain threshold. The benefit of the model is it can learn non-linear models, which allows us to create complex models. However, this is sensitive to to feature scaling. Hence, we will normalize the data in preprocessing. `MLPClassifier()` in sklearn is used in this paper.
-Random forrest classifier is a classification method uses multiple decition trees from randomly selected subset of training data.
 
+Random forrest classifier is a classification method uses multiple decision trees from randomly selected subset of training data. Sometimes simple random forest classifier performs better than other complicated models. `RandomForestClassifier()` from sklearn is used in the implementation. 
 
-In this section, you will need to discuss the algorithms and techniques you intend to use for solving the problem. You should justify the use of each one based on the characteristics of the problem and the problem domain. Questions to ask yourself when writing this section:
-- _Are the algorithms you will use, including any default variables/parameters in the project clearly defined?_
-- _Are the techniques to be used thoroughly discussed and justified?_
-- _Is it made clear how the input data or datasets will be handled by the algorithms and techniques chosen?_
+The k-nearest neighbors vote classifies using majority vote of it's neighbors, with the object being assigned to the class most common to its k-nearest neighbor. The main feature of this model is being non-parametric method. This makes the model suitable for data with a lot of unknowns and outliers. `KNeighborsClassifier()` from sklearn will be used in the implementation.
+
+Additionally, support vector machine is a classifier model which finds a hyper plane which separates one or the other of two categories. It is represented as `SVN()` in sklearn.
+
+And finally AdaBoost classifier is a classifier used in conjunction of bunch of weak learners. The benefit of the class is this model provides relatively accurate predictions without much of parameter tuning. However, AdaBoost is sensitive to outlier and noisy data. `AdaBoostClassifier()` class from sklearn is used in this project.
 
 ### Benchmark
-In this section, you will need to provide a clearly defined benchmark result or threshold for comparing across performances obtained by your solution. The reasoning behind the benchmark (in the case where it is not an established result) should be discussed. Questions to ask yourself when writing this section:
-- _Has some result or value been provided that acts as a benchmark for measuring performance?_
-- _Is it clear how this result or value was obtained (whether by data or by hypothesis)?_
+As benchmark, I used XGBoost binary classifier provided on Sagemaker. I ended up using XGBoost because the model can be easily accessed on AWS. Additionally, it is known for providing good predictions and won some Kaggle competitions. 
 
+The parameter of predictor is defined as below:
+
+```py
+xgb.set_hyperparameters(max_depth=5,
+                        eta=0.2,
+                        gamma=4,
+                        min_child_weight=6,
+                        subsample=0.8,
+                        silent=0,
+                        objective='binary:logistic',
+                        early_stopping_rounds=10,
+                        num_round=500)
+```
+
+20 % of data is used for test data to calculate accuracy score of the model, which turned out 0.795.
 
 ## III. Methodology
 _(approx. 3-5 pages)_
@@ -235,4 +254,5 @@ In this section, you will need to provide discussion as to how one aspect of the
 * [Receiver operating characteristic](https://en.wikipedia.org/wiki/Receiver_operating_characteristic)
 * [Logistic regression](https://en.wikipedia.org/wiki/Logistic_regression)
 * [scikit-learn](https://scikit-learn.org/stable/index.html)
-* [Machine Learning101 - Chapter 5: Random Forest Classifier](https://medium.com/machine-learning-101/chapter-5-random-forest-classifier-56dc7425c3e1s)
+* [Machine Learning101](https://medium.com/machine-learning-101)
+* [AdaBoost](https://en.wikipedia.org/wiki/AdaBoost)
