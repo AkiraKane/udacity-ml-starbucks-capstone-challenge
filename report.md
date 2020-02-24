@@ -156,6 +156,8 @@ Additionally, support vector machine is a classifier model which finds a hyper p
 
 And finally AdaBoost classifier is a classifier used in conjunction of bunch of weak learners. The benefit of the class is this model provides relatively accurate predictions without much of parameter tuning. However, AdaBoost is sensitive to outlier and noisy data. `AdaBoostClassifier()` class from sklearn is used in this project.
 
+To simplify the problem, I'm not considering time series of user behavior. For example, it's natural to think an user who has transaction every month would not come back to a store til next month, taking it account would help improve the model. However, for this iteration, I will use user profile and offer information to tell if an user is likely to react to offers.
+
 ### Benchmark
 As benchmark, I used XGBoost binary classifier provided on Sagemaker. I ended up using XGBoost because the model can be easily accessed on AWS. Additionally, it is known for providing good predictions and won some Kaggle competitions. 
 
@@ -176,78 +178,233 @@ xgb.set_hyperparameters(max_depth=5,
 20 % of data is used for test data to calculate accuracy score of the model, which turned out 0.795.
 
 ## III. Methodology
-_(approx. 3-5 pages)_
 
 ### Data Preprocessing
-In this section, all of your preprocessing steps will need to be clearly documented, if any were necessary. From the previous section, any of the abnormalities or characteristics that you identified about the dataset will be addressed and corrected here. Questions to ask yourself when writing this section:
-- _If the algorithms chosen require preprocessing steps like feature selection or feature transformations, have they been properly documented?_
-- _Based on the **Data Exploration** section, if there were abnormalities or characteristics that needed to be addressed, have they been properly corrected?_
-- _If no preprocessing is needed, has it been made clear why?_
+
+THe first step was to clean up each data to remove anomaly and convert some data to easier to digest format for models. Then I combined those data to generate input features and label. Finally, combined data is normalized.
+
+#### Portfolio
+For portfolio, we first need to convert channels to binary columns from arrays of strings. Additionally, I converted `offer_type` to binary columns based on the value of the original column. This way all models can digest those values well. I also replaced `id` with `offer_id` to concatenate other data. The function I used to clean up looks like below:
+
+
+```python
+def clean_portfolio(data):
+    p = data.copy()
+    p['web'] = p['channels'].apply(lambda x: 1 if 'web' in x else 0)
+    p['email'] = p['channels'].apply(lambda x: 1 if 'email' in x else 0)
+    p['mobile'] = p['channels'].apply(lambda x: 1 if 'mobile' in x else 0)
+    p['social'] = p['channels'].apply(lambda x: 1 if 'social' in x else 0)
+    p.drop(['channels'], axis=1, inplace=True)
+    
+    p['bogo'] = p['offer_type'].apply(lambda x: 1 if 'bogo' in x else 0)
+    p['discount'] = p['offer_type'].apply(lambda x: 1 if 'discount' in x else 0)
+    p['informational'] = p['offer_type'].apply(lambda x: 1 if 'informational' in x else 0)
+    p.drop(['offer_type'], axis=1, inplace=True)
+    
+    p['offer_id'] = p['id']
+    p.set_index('offer_id', inplace=True)
+    p.drop(['id'], axis=1, inplace=True)
+    
+    return p
+```
+
+The sample data of cleaned portfolio looks like below. `offer_id` will be used for concatenation.
+
+![](images/2020-02-23-17-42-06.png)
+*Cleaned portfolio data*
+
+#### Profile
+
+As mentioned above, age column has the default value 118, and it will be treated as anomaly if I leave it as is. I converted age to the mean of values that is not 118. Likewise, I took mean of income as well.
+
+Gender is also missing some data. First, I created three columns for gender instead, `male`, `female` and `no_gender` and they take binary integer. I replaced all genders to those 3 columns and used `no_gender` if the value is not `F` or `M`.
+
+`id` was replaced with `profile_id` for concatenation.
+
+I replaced `become_member_on` with `member_days` which shows number of days since you became member. This makes it a single integer value and makes it easier to understand for ML models.
+
+Here is the function I used to clean profile data:
+
+```py
+def clean_profile(df):
+    p = df.copy()
+    p['age'] = p['age'].apply(lambda x: np.nan if x == 118 else x)
+    p['age'] = p['age'].fillna(p['age'].mean())
+    
+    p['income'] = p['income'].fillna(p['income'].mean())
+    
+    p['male'] = p['gender'].apply(lambda x: 1 if x == 'M' else 0)
+    p['female'] = p['gender'].apply(lambda x: 1 if x == 'F' else 0)
+    p['no_gender'] = p['gender'].apply(lambda x: 1 if x != 'F' and x != 'M' else 0)
+    p.drop(['gender'], axis=1, inplace=True)
+
+    p['profile_id'] = p['id']
+    p.drop(['id'], axis=1, inplace=True)
+    p.set_index('profile_id',inplace=True)
+
+    p['member_days'] = (datetime.datetime.today().date() - pd.to_datetime(p['became_member_on'], format='%Y%m%d').dt.date).dt.days
+    p.drop(['became_member_on'], axis=1, inplace=True)
+    return p
+```
+
+And here is the sample converted data:
+![](images/2020-02-23-17-53-34.png)
+*Cleaned profile data*
+
+#### Transaction
+For transaction, I separate data to transaction and offer related based on `event` field. The leaning model I used does not consider historical transaction data. Therefore, we can ignore transaction events. Of course, to improve the model, we can potentially use this data with time series analysis. 
+
+I clean offer by first replacing `person` column name with `profile_id`. Then, extract `offer_id` from `value` field to concatenate eventually. Then instead of `event`, I created 3 columns for corresponding value using binary values, `offer_completed`, `offer_received` and `offer_viewed`.
+
+I dropped `time` because I'm not considering timeline of transaction and user behavior in this model.
+
+Here is the code used to clean offers.
+
+
+```py
+def clean_offer(df):
+    d = df.copy()
+    d['profile_id'] = d['person']
+    d.drop(['person'], axis = 1, inplace = True)
+    
+    d['offer_id'] = d['value'].apply(lambda x: x['offer id'] if 'offer id' in x.keys() else x['offer_id'] if 'offer_id' in x.keys() else np.nan)
+
+    d['event'] = d['event'].apply(lambda x: x.replace(" ", "_"))                                 
+    event_df = pd.get_dummies(d['event'])    
+    d = pd.concat([d, event_df], axis=1)
+
+    d.drop(['value', 'time', 'event'], axis = 1, inplace = True)
+    d.reset_index(drop=True, inplace = True)
+    return d
+```
+
+Here is cleaned transaction:
+
+![](images/2020-02-23-18-01-34.png)
+*Cleaned transaction data*
+
+
+#### Concatenation and normalization 
+
+The data is concatenated using `offer_id` and `profile_id`. When you aggregate, I can take summation for `offer_completed`, `offer_received` and `offer_viewed` because it's possible that users receive the same offer multiple times. However, to simplify, I didn't take the number of offer received in consideration and dropped the column. I separated `offer_completed` to used it as label.
+
+After that the data is normalized using `MinMaxScaler` in sklearn for non-binary values, `age`, `income`, `difficulty`, `duration`, `reward`, and `member_days`. 
+
+At the end, we get features looks like below:
+
+![](images/2020-02-23-18-10-05.png)
+*Cleaned features*
+
 
 ### Implementation
-In this section, the process for which metrics, algorithms, and techniques that you implemented for the given data will need to be clearly documented. It should be abundantly clear how the implementation was carried out, and discussion should be made regarding any complications that occurred during this process. Questions to ask yourself when writing this section:
-- _Is it made clear how the algorithms and techniques were implemented with the given datasets or input data?_
-- _Were there any complications with the original metrics or techniques that required changing prior to acquiring a solution?_
-- _Was there any part of the coding process (e.g., writing complicated functions) that should be documented?_
+
+I wrote a function which takes sklearn model and runs training and validation, which looks like below.
+
+```py
+def train_predict(model, X_train, y_train, X_test, y_test):
+    print('Name: {}'.format(model.__class__.__name__))
+    
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    
+    score = model.score(X_test, y_test)
+    print('Test score: {:.3f}'.format(score))
+    accuracy = accuracy_score(y_test, y_pred)
+    print('Accuracy score: {:.3f}'.format(accuracy))
+
+    probs = model.predict_proba(X_test)[:, 1]
+    auc = roc_auc_score(y_test, probs)
+    print('AUC: %.2f' % auc)
+    fpr, tpr, _ = roc_curve(y_test, probs)
+    
+    return {'y_pred': y_pred, 'auc': auc, 'fpr': fpr, 'tpr': tpr, 'score': score, 'accuracy': accuracy}
+```
+
+This function fit the model using training data and gives prediction based on test data. Afterwords it calculates test score and accuracy score. Additionally, AUC is also returned. At the end those two values are used as main measurements of model performance. 
+
+All models are defined in sklearn library, and in general, default value is used for the sake of simplicity. The model definition is below.
+
+```py
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neighbors import  KNeighborsClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import AdaBoostClassifier
+
+models = []
+models.append(SVC(probability=True))
+models.append(MLPClassifier())
+models.append(LogisticRegression())
+models.append(KNeighborsClassifier())
+models.append(SVC(kernel='linear',probability=True))
+models.append(RandomForestClassifier())
+models.append(AdaBoostClassifier())
+```
+
+I take this array of models and for looped them to train the model. During the for loop, it keeps track of the best score and gives best method and best score based on it. Additionally, it plots ROC-AUC curves. The code is shown below.
+
+```py
+best_score = 0
+best_method = ""
+
+for model in models:
+    result = train_predict(model, X_train, y_train, X_test, y_test)
+    fpr, tpr, auc = result['fpr'], result['tpr'], result['auc']
+    plt.plot(fpr,tpr,label="{}, auc={}".format(model.__class__.__name__, str(auc)))
+    
+    if result['score'] > best_score:
+        best_method = model.__class__.__name__
+        best_score = result['score']
+
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic (ROC) Curve')
+plt.legend()
+plt.show()
+
+print('---------------------------------')
+print('best_method：', best_method)
+print('best_score：', best_score)
+```
+
 
 ### Refinement
-In this section, you will need to discuss the process of improvement you made upon the algorithms and techniques you used in your implementation. For example, adjusting parameters for certain models to acquire improved solutions would fall under the refinement category. Your initial and final solutions should be reported, as well as any significant intermediate results as necessary. Questions to ask yourself when writing this section:
-- _Has an initial solution been found and clearly reported?_
-- _Is the process of improvement clearly documented, such as what techniques were used?_
-- _Are intermediate and final solutions clearly reported as the process is improved?_
-
+I started off with using Sagemaker Estimator objects to optimize model learning process by using GPU instances. However, it turned out sklearn provides much simpler interface which allows me to reuse code and simplify the process. Additionally, since I simplified the problem, machine learning fitting process does not take long time. Therefore, I sticked with sklearn and added more models than I originally planned.
 
 ## IV. Results
-_(approx. 2-3 pages)_
 
 ### Model Evaluation and Validation
-In this section, the final model and any supporting qualities should be evaluated in detail. It should be clear how the final model was derived and why this model was chosen. In addition, some type of analysis should be used to validate the robustness of this model and its solution, such as manipulating the input data or environment to see how the model’s solution is affected (this is called sensitivity analysis). Questions to ask yourself when writing this section:
-- _Is the final model reasonable and aligning with solution expectations? Are the final parameters of the model appropriate?_
-- _Has the final model been tested with various inputs to evaluate whether the model generalizes well to unseen data?_
-- _Is the model robust enough for the problem? Do small perturbations (changes) in training data or the input space greatly affect the results?_
-- _Can results found from the model be trusted?_
 
-### Justification
-In this section, your model’s final solution and its results should be compared to the benchmark you established earlier in the project using some type of statistical analysis. You should also justify whether these results and the solution are significant enough to have solved the problem posed in the project. Questions to ask yourself when writing this section:
-- _Are the final results found stronger than the benchmark result reported earlier?_
-- _Have you thoroughly analyzed and discussed the final solution?_
-- _Is the final solution significant enough to have solved the problem?_
+The table below is the result of test score and AUC for each model. ROC curve chart is provided as well. The numbers do not vary marginally, and almost within the error range. MLPClassifier and AdaBoostClassifier performed slightly better than other models. 
+In order to verify the models are not overfitting, I conducted cross validation using `cross_val_score()` function in sklearn. Both MLPClassifier and AdaBoostClassifier gave pretty similar score as the original experiment. Given we have 33579 offer completed data, this result indicates the model is not overfitting.
+
+|Model name|Test score|AUC| 
+|---|---|---|
+|SVC (linear)|0.767|0.86|
+|MLPClassifier|0.784|0.88|
+|LogisticRegression|0.765|0.85|
+|KNeighborsClassifier|0.764|0.84|
+|SVC|0.766|0.85|
+|RandomForestClassifier|0.763|0.85|
+|AdaBoostClassifier|0.782|0.88|
+
+![](images/2020-02-23-18-32-33.png)
+*ROC curve*
+
+Given all of this MLPClassifier seems the best model within the models I tested. However, this did not give better model than XGBoost with default value, although this simple model provided almost almost 80% accuracy for Starbuck app offers. 
 
 
 ## V. Conclusion
-_(approx. 1-2 pages)_
 
-### Free-Form Visualization
-In this section, you will need to provide some form of visualization that emphasizes an important quality about the project. It is much more free-form, but should reasonably support a significant result or characteristic about the problem that you want to discuss. Questions to ask yourself when writing this section:
-- _Have you visualized a relevant or important quality about the problem, dataset, input data, or results?_
-- _Is the visualization thoroughly analyzed and discussed?_
-- _If a plot is provided, are the axes, title, and datum clearly defined?_
+The result showed how storng out of the box XGBoost. XGBoost model was often used as the best model in Kaggle competetion like Otto Group Product Classification Challenge for example. 
 
-### Reflection
-In this section, you will summarize the entire end-to-end problem solution and discuss one or two particular aspects of the project you found interesting or difficult. You are expected to reflect on the project as a whole to show that you have a firm understanding of the entire process employed in your work. Questions to ask yourself when writing this section:
-- _Have you thoroughly summarized the entire process you used for this project?_
-- _Were there any interesting aspects of the project?_
-- _Were there any difficult aspects of the project?_
-- _Does the final model and solution fit your expectations for the problem, and should it be used in a general setting to solve these types of problems?_
+Of course, possible improvement is to optimize parameters for both XGBoost and MLPClassifier, and to see which performs better. For sklearn models, we can achieve this hyperparameter tuning using grid search (`GridSearchCV`) or random search (`RandomizedSearchCV`). 
 
-### Improvement
-In this section, you will need to provide discussion as to how one aspect of the implementation you designed could be improved. As an example, consider ways your implementation can be made more general, and what would need to be modified. You do not need to make this improvement, but the potential solutions resulting from these changes are considered and compared/contrasted to your current solution. Questions to ask yourself when writing this section:
-- _Are there further improvements that could be made on the algorithms or techniques you used in this project?_
-- _Were there algorithms or techniques you researched that you did not know how to implement, but would consider using if you knew how?_
-- _If you used your final solution as the new benchmark, do you think an even better solution exists?_
+Additionally, in this case, for the sake of simplicity, I did not include time series data. We can potentially use something like DeepAR to train models using this aspect.
 
------------
 
-**Before submitting, ask yourself. . .**
-
-- Does the project report you’ve written follow a well-organized structure similar to that of the project template?
-- Is each section (particularly **Analysis** and **Methodology**) written in a clear, concise and specific fashion? Are there any ambiguous terms or phrases that need clarification?
-- Would the intended audience of your project be able to understand your analysis, methods, and results?
-- Have you properly proof-read your project report to assure there are minimal grammatical and spelling mistakes?
-- Are all the resources used for this project correctly cited and referenced?
-- Is the code that implements your solution easily readable and properly commented?
-- Does the code execute without error and produce results similar to those reported?
-- 
 ## Reference
 * [XGBoost Documentation](https://xgboost.readthedocs.io/en/latest/)
 * [ROC and AUC, Clearly Explained!](https://www.youtube.com/watch?v=4jRBRDbJemM)
@@ -256,3 +413,4 @@ In this section, you will need to provide discussion as to how one aspect of the
 * [scikit-learn](https://scikit-learn.org/stable/index.html)
 * [Machine Learning101](https://medium.com/machine-learning-101)
 * [AdaBoost](https://en.wikipedia.org/wiki/AdaBoost)
+* [Otto Group Product Classification Challenge](https://www.kaggle.com/c/otto-group-product-classification-challenge/discussion/14335)
