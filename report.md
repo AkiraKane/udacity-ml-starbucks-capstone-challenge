@@ -11,11 +11,10 @@ Nowadays Understanding user behavior and taking actions based on data is a key f
 ### Problem Statement
 It is important for marketers to be able tell how well an offer will perform in order to run effective campaigns. This problem can break down to multiple sections, such as choosing the right parameter for a target audience, finding the audience that can give the most outcome, analyzing user behavior after they used an offer, predicting how many user will use a certain offer. In this project, I will build a model which can give prediction on  wether or not a user will complete the offer or not by using machine learning predictors. 
 The model is going to  be binary classifier because the outcome we want to expect is binary, if a user will complete the offer or not. The model will take an offer as input and gives how much percent of users will complete the offer. 
-In order to achieve this, I will first explore the dataset to have better understanding. Secondly, I will clean up the dataset so that machine learning models can utilize the data, which includes normalization. Once the dataset is ready, I will use XGBoost as a benchmark model. XGBoost is an optimized distributed gradient boosting library, which AWS Sagemaker  estimator provides easy to use support. Finally, I will use other models, such  as the support vector machine, the logistic regression, the k-nearest neighbors vote, to compare the performance suited for our purpose to predict offer completion.
+In order to achieve this, I will first explore the dataset to have better understanding. Secondly, I will clean up the dataset so that machine learning models can utilize the data, which includes normalization. Once the dataset is ready, I will use DummyClassifier provided by the scikit learn library. Finally, I will use other models, such  as the support vector machine, the logistic regression, the k-nearest neighbors vote, to compare the performance suited for our purpose to predict offer completion.
 
 ### Metrics
-I will use ROC-AUC as a main metric. This is a graphical plot using the true positive rate (TPR) and the false positive rate (FPR) at various threshold to illustrate optimal model. ROC-AUC is suited for balanced data because TPR and FPR only depends on positives and if the dataset is imbalanced ROC-AUC won’t capture precision. In this case, dataset is balanced as shown in data exploration section and we can use ROC-AUC as the main metric.
-Additionally, accuracy with validation data will be accounted as main metrics.
+I will use the accuracy score and the receiver operating characteristic (ROC), specifically ROC-AUC. The accuracy score is provided by scikit learn library, which gives exact match with the test data and prediction. ROC-AUC is a graphical plot using the true positive rate (TPR) and the false positive rate (FPR) at various threshold to illustrate optimal model. ROC-AUC is suited for balanced data because TPR and FPR only depends on positives and if the data set is imbalanced ROC-AUC won’t capture precision. In this case, data set is balanced as shown in data exploration section and we can use ROC-AUC as the main metric.
 
 
 ## II. Analysis
@@ -159,23 +158,19 @@ And finally AdaBoost classifier is a classifier used in conjunction of bunch of 
 To simplify the problem, I'm not considering time series of user behavior. For example, it's natural to think an user who has transaction every month would not come back to a store til next month, taking it account would help improve the model. However, for this iteration, I will use user profile and offer information to tell if an user is likely to react to offers.
 
 ### Benchmark
-As benchmark, I used XGBoost binary classifier provided on Sagemaker. I ended up using XGBoost because the model can be easily accessed on AWS. Additionally, it is known for providing good predictions and won some Kaggle competitions. 
-
-The parameter of predictor is defined as below:
+I used DummyClassifier in scikit learn. According to the documentation, DummyClassifier is a classifier that makes predictions using simple rules. The model is initialized with strategy parameter shown below:
 
 ```py
-xgb.set_hyperparameters(max_depth=5,
-                        eta=0.2,
-                        gamma=4,
-                        min_child_weight=6,
-                        subsample=0.8,
-                        silent=0,
-                        objective='binary:logistic',
-                        early_stopping_rounds=10,
-                        num_round=500)
+model = DummyClassifier(strategy="most_frequent")
 ```
 
-20 % of data is used for test data to calculate accuracy score of the model, which turned out 0.795.
+This model will always predict most frequent labels in the training set. This DummyClassifier is suitable for this project because I designed the pipeline in a way it's easy to accommodate new sklearn classifiers.
+
+The result provided by the model is
+
+|Model name|Accuracy score|AUC| 
+|---|---|---|
+|Dummy Classifier|0.541|0.541|
 
 ## III. Methodology
 
@@ -377,11 +372,15 @@ I started off with using Sagemaker Estimator objects to optimize model learning 
 
 ### Model Evaluation and Validation
 
-The table below is the result of test score and AUC for each model. ROC curve chart is provided as well. The numbers do not vary marginally, and almost within the error range. MLPClassifier and AdaBoostClassifier performed slightly better than other models. 
+The table below is the result of test score and AUC for each model. ROC curve chart is provided as well. The numbers do not vary marginally, and almost within the error range. All the models performed better than the benchmark, and it shows machine learning models successfully learned training data.
+
+MLP Classifier and AdaBoostClassifier performed slightly better than other models. 
+
 In order to verify the models are not overfitting, I conducted cross validation using `cross_val_score()` function in sklearn. Both MLPClassifier and AdaBoostClassifier gave pretty similar score as the original experiment. Given we have 33579 offer completed data, this result indicates the model is not overfitting.
 
-|Model name|Test score|AUC| 
+|Model name|Accuracy score|AUC| 
 |---|---|---|
+|Dummy Classifier (Benchmark)|0.541|0.541|
 |SVC (linear)|0.767|0.86|
 |MLPClassifier|0.784|0.88|
 |LogisticRegression|0.765|0.85|
@@ -390,23 +389,17 @@ In order to verify the models are not overfitting, I conducted cross validation 
 |RandomForestClassifier|0.763|0.85|
 |AdaBoostClassifier|0.782|0.88|
 
-![](images/2020-02-23-18-32-33.png)
+![](images/2020-02-29-16-03-27.png)
 *ROC curve*
 
-Given all of this MLPClassifier seems the best model within the models I tested. However, this did not give better model than XGBoost with default value, although this simple model provided almost almost 80% accuracy for Starbuck app offers. 
-
+Given all of this MLPClassifier seems the best model within the models I tested by a small margin. MLPClassifier also has a lot of flexibly in hyperparameter tuning like other models. We can use this this flexibility for further improvement using grid search (`GridSearchCV`) or random search (`RandomizedSearchCV`). 
 
 ## V. Conclusion
 
-The result showed how storng out of the box XGBoost. XGBoost model was often used as the best model in Kaggle competetion like Otto Group Product Classification Challenge for example. 
-
-Of course, possible improvement is to optimize parameters for both XGBoost and MLPClassifier, and to see which performs better. For sklearn models, we can achieve this hyperparameter tuning using grid search (`GridSearchCV`) or random search (`RandomizedSearchCV`). 
-
-Additionally, in this case, for the sake of simplicity, I did not include time series data. We can potentially use something like DeepAR to train models using this aspect.
+The result showed the machine learning models successfully came up with predictions better than the benchmark model. MLPClassifier performed slightly better with default settings in scikit learn library. As further improvement, we can conducted hyperparameter optimization which was not done for the sake of simplicity. Additionally, we can build models using models considers time-series such as DeepAR because user behavior is highly likely dependent on their previous activity.
 
 
 ## Reference
-* [XGBoost Documentation](https://xgboost.readthedocs.io/en/latest/)
 * [ROC and AUC, Clearly Explained!](https://www.youtube.com/watch?v=4jRBRDbJemM)
 * [Receiver operating characteristic](https://en.wikipedia.org/wiki/Receiver_operating_characteristic)
 * [Logistic regression](https://en.wikipedia.org/wiki/Logistic_regression)
